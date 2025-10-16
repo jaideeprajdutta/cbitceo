@@ -7,15 +7,41 @@ import requests
 from bs4 import BeautifulSoup
 from threading import Thread
 import time
+from flask import jsonify
+from flask_cors import CORS
+from pathlib import Path
+
+# Try to load environment variables from .env files, but don't crash if it fails
+try:
+    from dotenv import load_dotenv
+
+    def safe_load_env(path_str: str) -> None:
+        path = Path(path_str)
+        if path.exists():
+            try:
+                # utf-8-sig handles BOM if present
+                load_dotenv(dotenv_path=str(path), encoding='utf-8-sig', override=True)
+                print(f"Loaded environment from {path}")
+            except Exception as e:
+                print(f"Warning: Could not load env from {path}: {e}")
+
+    # Load from common locations in order
+    safe_load_env('.env')
+    safe_load_env('venv/.env')
+    safe_load_env('.venv/.env')
+except Exception as e:
+    print(f"Warning: dotenv not available or failed: {e}")
+    print("Using default email configuration")
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'  # Required for flash messages
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Email configuration (replace with your details)
-EMAIL_ADDRESS = 'your_email@gmail.com'
-EMAIL_PASSWORD = 'your_app_password'
-SMTP_SERVER = 'smtp.gmail.com'
-SMTP_PORT = 587
+# Email configuration - Use environment variables for security
+EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS', 'your_email@gmail.com')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD', 'your_app_password')
+SMTP_SERVER = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 
 # File to store email addresses
 EMAIL_FILE = 'emails.txt'
@@ -130,6 +156,32 @@ def subscribe():
             return redirect(url_for('home'))
             
     return render_template('subscribe.html')
+
+# --- JSON API for frontend integration ---
+@app.route('/api/updates')
+def api_updates():
+    updates = scrape_college_updates()
+    if isinstance(updates, str):
+        return jsonify({"error": updates}), 500
+    return jsonify(updates)
+
+@app.route('/api/subscribe', methods=['POST'])
+def api_subscribe():
+    data = request.get_json(silent=True) or {}
+    email = data.get('email')
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    if not os.path.exists(EMAIL_FILE):
+        open(EMAIL_FILE, 'a').close()
+
+    with open(EMAIL_FILE, 'r+') as f:
+        subscribers = [e.strip() for e in f.read().splitlines()]
+        if email not in subscribers:
+            f.write(f"{email}\n")
+            return jsonify({"message": "Subscribed"}), 201
+        else:
+            return jsonify({"message": "Already subscribed"}), 200
 
 if __name__ == '__main__':
     # Start the background monitoring thread
