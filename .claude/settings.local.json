@@ -22,7 +22,12 @@
       "Bash(GIT_TRACE=1 git add app.py)",
       "Bash(git config *)",
       "Bash(xxd)",
-      "Bash(git ls-tree *)"
+      "Bash(git ls-tree *)",
+      "Bash(git push *)",
+      "Bash(curl -s https://api.github.com/repos/jaideeprajdutta/cbitceo/commits?per_page=3)",
+      "Bash(git commit *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)"
     ]
   }
 }
