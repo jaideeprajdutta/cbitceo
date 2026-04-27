@@ -9,33 +9,55 @@ from threading import Thread
 import time
 from flask import jsonify
 from flask_cors import CORS
-from pathlib import Path
-
-# Try to load environment variables from .env files, but don't crash if it fails
-try:
-    from dotenv import load_dotenv
-
-    def safe_load_env(path_str: str) -> None:
-        path = Path(path_str)
-        if path.exists():
-            try:
-                # utf-8-sig handles BOM if present
-                load_dotenv(dotenv_path=str(path), encoding='utf-8-sig', override=True)
-                print(f"Loaded environment from {path}")
-            except Exception as e:
-                print(f"Warning: Could not load env from {path}: {e}")
-
-    # Load from common locations in order
-    safe_load_env('.env')
-    safe_load_env('venv/.env')
-    safe_load_env('.venv/.env')
-except Exception as e:
-    print(f"Warning: dotenv not available or failed: {e}")
-    print("Using default email configuration")
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import os
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'  # Required for flash messages
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# Database configuration
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+def init_db():
+    """Initialize the database tables."""
+    if not DATABASE_URL:
+        print("DATABASE_URL not set - using file-based storage fallback")
+        return False
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS last_updates (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                data TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS subscribers (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        # Insert default row if not exists
+        cur.execute('INSERT INTO last_updates (id, data) VALUES (1, %s) ON CONFLICT (id) DO NOTHING', (str([]),))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("Database initialized successfully")
+        return True
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+        return False
+
+# Initialize database on startup
+db_available = init_db()
 
 # Email configuration - Use environment variables for security
 EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS', 'your_email@gmail.com')
@@ -76,13 +98,54 @@ def scrape_college_updates():
         return f"An unexpected error occurred: {e}"
 
 # --- Email Notification Functions ---
+def get_subscribers():
+    """Get all subscribers from database or file fallback."""
+    if db_available:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute('SELECT email FROM subscribers')
+            subscribers = [row['email'] for row in cur.fetchall()]
+            cur.close()
+            conn.close()
+            return subscribers
+        except Exception as e:
+            print(f"DB error getting subscribers: {e}")
+    # Fallback to file
+    if os.path.exists(EMAIL_FILE):
+        with open(EMAIL_FILE, 'r') as f:
+            return [email.strip() for email in f.read().splitlines() if email.strip()]
+    return []
+
+def save_subscriber(email):
+    """Save subscriber to database or file fallback."""
+    if db_available:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                'INSERT INTO subscribers (email) VALUES (%s) ON CONFLICT (email) DO NOTHING',
+                (email,)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"DB error saving subscriber: {e}")
+    # Fallback to file
+    if not os.path.exists(EMAIL_FILE):
+        open(EMAIL_FILE, 'a').close()
+    with open(EMAIL_FILE, 'r+') as f:
+        subscribers = [e.strip() for e in f.read().splitlines()]
+        if email not in subscribers:
+            f.write(f"{email}\n")
+            return True
+    return False
+
 def send_email_notification(new_updates):
     try:
-        if not os.path.exists(EMAIL_FILE):
-            return
-            
-        with open(EMAIL_FILE, 'r') as f:
-            subscribers = [email.strip() for email in f.read().splitlines() if email.strip()]
+        subscribers = get_subscribers()
 
         if not subscribers:
             print("No subscribers to send emails to.")
@@ -92,12 +155,12 @@ def send_email_notification(new_updates):
         body = "Hello,\n\nThere are new updates from the college website:\n\n"
         for update in new_updates:
             body += f"- {update['title']}\n"
-            
+
         msg = MIMEMultipart()
         msg['From'] = EMAIL_ADDRESS
         msg['Subject'] = subject
         msg.attach(MIMEText(body))
-        
+
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as smtp:
             smtp.starttls()
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
@@ -107,25 +170,59 @@ def send_email_notification(new_updates):
     except Exception as e:
         print(f"Error sending emails: {e}")
 
+# --- Database helpers for persistent state ---
+def get_last_updates():
+    if db_available:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute('SELECT data FROM last_updates WHERE id = 1')
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            return row['data'] if row else "[]"
+        except Exception as e:
+            print(f"DB error getting last updates: {e}")
+    # Fallback to file
+    if os.path.exists(LAST_UPDATES_FILE):
+        with open(LAST_UPDATES_FILE, 'r') as f:
+            return f.read()
+    return "[]"
+
+def save_last_updates(data):
+    if db_available:
+        try:
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                'INSERT INTO last_updates (id, data, updated_at) VALUES (1, %s, CURRENT_TIMESTAMP) '
+                'ON CONFLICT (id) DO UPDATE SET data = %s, updated_at = CURRENT_TIMESTAMP',
+                (data, data)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"DB error saving last updates: {e}")
+    # Fallback to file
+    with open(LAST_UPDATES_FILE, 'w') as f:
+        f.write(data)
+    return True
+
 # --- Background Task for Monitoring Updates ---
 def monitor_updates():
     while True:
         current_updates = scrape_college_updates()
         if isinstance(current_updates, list):
-            last_updates_str = ""
-            if os.path.exists(LAST_UPDATES_FILE):
-                with open(LAST_UPDATES_FILE, 'r') as f:
-                    last_updates_str = f.read()
-
+            last_updates_str = get_last_updates()
             current_updates_str = str(current_updates)
-            
+
             if current_updates_str != last_updates_str:
                 print("New updates detected! Sending notifications.")
                 send_email_notification(current_updates)
-                
-                with open(LAST_UPDATES_FILE, 'w') as f:
-                    f.write(current_updates_str)
-        
+                save_last_updates(current_updates_str)
+
         time.sleep(3600)  # Check every hour
 
 # --- Flask Routes ---
@@ -144,17 +241,12 @@ def subscribe():
     if request.method == 'POST':
         email = request.form.get('email')
         if email:
-            if not os.path.exists(EMAIL_FILE):
-                open(EMAIL_FILE, 'a').close()
-            with open(EMAIL_FILE, 'r+') as f:
-                subscribers = [e.strip() for e in f.read().splitlines()]
-                if email not in subscribers:
-                    f.write(f"{email}\n")
-                    flash('You have been subscribed successfully!', 'success')
-                else:
-                    flash('You are already subscribed.', 'info')
+            if save_subscriber(email):
+                flash('You have been subscribed successfully!', 'success')
+            else:
+                flash('You are already subscribed.', 'info')
             return redirect(url_for('home'))
-            
+
     return render_template('subscribe.html')
 
 # --- JSON API for frontend integration ---
@@ -172,20 +264,20 @@ def api_subscribe():
     if not email:
         return jsonify({"error": "Email is required"}), 400
 
-    if not os.path.exists(EMAIL_FILE):
-        open(EMAIL_FILE, 'a').close()
+    if save_subscriber(email):
+        return jsonify({"message": "Subscribed"}), 201
+    else:
+        return jsonify({"message": "Already subscribed"}), 200
 
-    with open(EMAIL_FILE, 'r+') as f:
-        subscribers = [e.strip() for e in f.read().splitlines()]
-        if email not in subscribers:
-            f.write(f"{email}\n")
-            return jsonify({"message": "Subscribed"}), 201
-        else:
-            return jsonify({"message": "Already subscribed"}), 200
+@app.route('/health')
+def health():
+    return jsonify({"status": "ok"})
 
 if __name__ == '__main__':
-    # Start the background monitoring thread
-    monitor_thread = Thread(target=monitor_updates, daemon=True)
-    monitor_thread.start()
-    
-    app.run(debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    # Start the background monitoring thread (skip in debug for easier testing)
+    if not os.environ.get('DEBUG'):
+        monitor_thread = Thread(target=monitor_updates, daemon=True)
+        monitor_thread.start()
+
+    app.run(host='0.0.0.0', port=port, debug=bool(os.environ.get('DEBUG')))
