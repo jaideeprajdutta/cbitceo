@@ -10,7 +10,8 @@
       "Bash(python3 *)",
       "Bash(curl -s http://127.0.0.1:5000/api/updates)",
       "Bash(git rm *)",
-      "Bash(pip3 install *)"
+      "Bash(pip3 install *)",
+      "Bash(curl -s http://127.0.0.1:5000/health)"
     ]
   }
 }
