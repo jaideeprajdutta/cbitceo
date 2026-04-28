@@ -9,8 +9,7 @@ from threading import Thread
 import time
 from flask import jsonify
 from flask_cors import CORS
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
 import os
 
 app = Flask(__name__)
@@ -21,7 +20,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_db_connection():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    return psycopg.connect(DATABASE_URL, row_factory=psycopg.rows.dict_row)
 
 def init_db():
     """Initialize the database tables."""
