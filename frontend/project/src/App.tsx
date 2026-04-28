@@ -18,6 +18,9 @@ interface FlashMessage {
   message: string;
 }
 
+// API URL - change VITE_API_URL in production
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 
 
 // Mock Data
@@ -516,7 +519,7 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({ open, onClose, darkMode
     setError(null);
 
     try {
-      const res = await fetch('/api/subscribe', {
+      const res = await fetch(`${API_URL}/api/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -586,7 +589,7 @@ function App() {
   const fetchUpdates = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch('/api/updates');
+      const res = await fetch(`${API_URL}/api/updates`);
       if (!res.ok) {
         throw new Error('Failed to load updates');
       }
