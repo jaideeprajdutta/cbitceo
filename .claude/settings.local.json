@@ -29,7 +29,10 @@
       "Bash(git pull *)",
       "Bash(git stash *)",
       "Bash(curl *)",
-      "PowerShell(pip install *)"
+      "PowerShell(pip install *)",
+      "PowerShell(python -m pip install python-pptx)",
+      "Bash(pkill -f \"python3 app.py\")",
+      "Bash(pkill -f \"flask\")"
     ]
   }
 }

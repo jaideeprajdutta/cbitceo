@@ -12,7 +12,7 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS', 'your_email@gmail.com')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD', 'your_app_password')
@@ -24,13 +24,22 @@ LAST_UPDATES_FILE = 'last_updates.txt'
 
 def scrape_college_updates():
     url = 'https://www.cbit.ac.in/'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=10, headers=headers)
         if response.status_code != 200:
             return f"Error: Unable to fetch page. Status code {response.status_code}"
 
         soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Try multiple selectors - <marquee> is deprecated but still used in India government sites
         updates_container = soup.find('marquee')
+        if not updates_container:
+            updates_container = soup.find('div', class_=['updates', 'news', 'notifications'])
+        if not updates_container:
+            updates_container = soup.find('ul', class_=['news-list', 'updates-list'])
 
         if updates_container:
             updates = updates_container.find_all('a')
@@ -38,10 +47,21 @@ def scrape_college_updates():
             for update in updates:
                 title = update.text.strip()
                 link = update.get('href')
-                scraped_data.append({'title': title, 'link': link})
+                if title:  # Only add if title is not empty
+                    scraped_data.append({'title': title, 'link': link})
             return scraped_data
         else:
-            return "Could not find the marquee tag on the homepage."
+            # Try to find any links that might be updates
+            all_links = soup.find_all('a')[:20]  # Limit to first 20 links
+            scraped_data = []
+            for link in all_links:
+                title = link.text.strip()
+                href = link.get('href')
+                if title and len(title) > 10 and href and 'cbit.ac.in' in str(href):
+                    scraped_data.append({'title': title, 'link': href})
+            if scraped_data:
+                return scraped_data
+            return "Could not find any updates on the homepage."
 
     except requests.exceptions.RequestException as e:
         return f"Error during scraping: {e}"

@@ -18,8 +18,8 @@ interface FlashMessage {
   message: string;
 }
 
-// API URL - change VITE_API_URL in production
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// API URL - use relative path to leverage Vite proxy in dev, full URL in production
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 
 
@@ -576,25 +576,37 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({ open, onClose, darkMode
 
 // Main App Component
 function App() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
 
   // Fetch updates from backend
+  const [apiError, setApiError] = useState<string | null>(null);
+
   const fetchUpdates = async () => {
+    setApiError(null);
     try {
       setIsLoading(true);
+      console.log('Fetching from:', `${API_URL}/api/updates`);
       const res = await fetch(`${API_URL}/api/updates`);
+      console.log('Response status:', res.status);
       if (!res.ok) {
-        throw new Error('Failed to load updates');
+        throw new Error(`Failed to load updates: ${res.status}`);
       }
       const data: Array<{ title: string; link: string } | string> = await res.json();
+      console.log('API Response:', data);
       if (!Array.isArray(data)) {
+        setApiError('Invalid data format from server');
+        setIsLoading(false);
+        return;
+      }
+      if (data.length === 0) {
+        setApiError('No updates found');
         setIsLoading(false);
         return;
       }
@@ -623,8 +635,10 @@ function App() {
         };
       });
       setNotifications(mapped);
+      setApiError(null);
     } catch (e) {
-      // Silently keep mock data on error
+      console.error('Fetch error:', e);
+      setApiError(e instanceof Error ? e.message : 'Failed to connect to server');
     } finally {
       setIsLoading(false);
     }
@@ -726,13 +740,28 @@ function App() {
         />
         
         <div className="flex-1 flex">
-          <NotificationList 
+          {apiError ? (
+            <div className={`flex-1 flex items-center justify-center ${darkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+              <div className="text-center p-8">
+                <div className={`text-red-500 text-lg mb-2`}>Failed to load updates</div>
+                <div className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{apiError}</div>
+                <button
+                  onClick={handleRefresh}
+                  className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          ) : (
+          <NotificationList
             notifications={filteredNotifications}
             selectedId={selectedNotification?.id}
             onNotificationSelect={handleNotificationSelect}
             darkMode={darkMode}
             onNotificationClick={handleNotificationClick}
           />
+          )}
         </div>
       </div>
 
