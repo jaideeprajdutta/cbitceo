@@ -12,7 +12,7 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
-CORS(app, resources={r"/api/*": {"origins": ["https://cbit-updates.vercel.app", "http://localhost:5173"]}}, supports_credentials=True)
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 EMAIL_ADDRESS = os.environ.get('EMAIL_ADDRESS', 'your_email@gmail.com')
 EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD', 'your_app_password')

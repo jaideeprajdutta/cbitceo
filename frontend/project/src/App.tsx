@@ -18,8 +18,8 @@ interface FlashMessage {
   message: string;
 }
 
-// API URL - change VITE_API_URL in production
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// API URL - use relative path to leverage Vite proxy in dev, full URL in production
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 
 
