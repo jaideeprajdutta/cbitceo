@@ -92,7 +92,7 @@ def send_email_notification(new_updates):
 
 def get_last_updates():
     if os.path.exists(LAST_UPDATES_FILE):
-        with open(LAST_UPDATES_FILE, 'r') as f:
+        with open(LAST_UPDATES_FILE, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
     return "[]"
 
