@@ -206,7 +206,7 @@ Edit the `scrape_college_updates()` function in `app.py`
 
 ## License
 
-This project is for educational purposes. Please respect CBIT's website terms of service.
+This project is for educational purposes.
 
 ## Support
 
